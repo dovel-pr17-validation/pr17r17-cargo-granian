@@ -1,0 +1,4 @@
+httptools
+uvicorn
+hypercorn
+websockets

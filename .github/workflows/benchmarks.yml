@@ -1,0 +1,258 @@
+name: benchmarks
+
+on: workflow_dispatch
+
+permissions: {}
+
+jobs:
+  toolchain:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Install Rust toolchain
+      run: |
+        rustup toolchain install stable --profile minimal --no-self-update
+        rustup default stable
+    - run: |
+        git clone https://github.com/gi0baro/rewrk.git
+        cd rewrk && cargo build --release
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: rewrk
+        path: rewrk/target/release/rewrk
+
+  benchmark-base:
+    runs-on: ubuntu-latest
+    needs: [toolchain]
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: '3.11'
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: rewrk
+    - run: |
+        sudo mv rewrk /usr/local/bin && chmod +x /usr/local/bin/rewrk
+    - uses: pyo3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+      with:
+        command: build
+        args: --release --interpreter python3.11
+        target: x64
+        manylinux: auto
+        container: off
+    - run: |
+        export _whl=$(ls target/wheels/granian-*.whl)
+        pip install $_whl
+    - name: benchmark
+      working-directory: ./benchmarks
+      run: |
+        python benchmarks.py
+    - name: upload results
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: results-base
+        path: benchmarks/results/*
+
+  benchmark-vs:
+    runs-on: ubuntu-latest
+    needs: [toolchain]
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: '3.11'
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: rewrk
+    - run: |
+        sudo mv rewrk /usr/local/bin && chmod +x /usr/local/bin/rewrk
+    - uses: pyo3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+      with:
+        command: build
+        args: --release --interpreter python3.11
+        target: x64
+        manylinux: auto
+        container: off
+    - run: |
+        export _whl=$(ls target/wheels/granian-*.whl)
+        pip install $_whl
+    - name: deps
+      run: |
+        pip install -r benchmarks/envs/asgi.txt
+        pip install -r benchmarks/envs/wsgi.txt
+    - name: benchmark
+      working-directory: ./benchmarks
+      run: |
+        python benchmarks.py vs
+    - name: upload results
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: results-vs
+        path: benchmarks/results/*
+
+  benchmark-ws:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: '3.11'
+    - uses: pyo3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+      with:
+        command: build
+        args: --release --interpreter python3.11
+        target: x64
+        manylinux: auto
+        container: off
+    - run: |
+        export _whl=$(ls target/wheels/granian-*.whl)
+        pip install $_whl
+    - name: deps
+      run: |
+        pip install -r benchmarks/envs/asgi.txt
+        pip install websockets
+    - name: benchmark
+      working-directory: ./benchmarks
+      run: |
+        python benchmarks.py vs_ws
+    - name: upload results
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: results-ws
+        path: benchmarks/results/*
+
+  benchmark-pyver:
+    runs-on: ubuntu-latest
+    needs: [toolchain]
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: |
+          3.10
+          3.11
+          3.12
+          3.13
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: rewrk
+    - run: |
+        sudo mv rewrk /usr/local/bin && chmod +x /usr/local/bin/rewrk
+    - uses: pyo3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+      with:
+        command: build
+        args: --release --interpreter python3.10 python3.11 python3.12 python3.13
+        target: x64
+        manylinux: auto
+        container: off
+    - name: setup venvs
+      run: |
+        python3.10 -m venv .venv310
+        python3.11 -m venv .venv311
+        python3.12 -m venv .venv312
+        python3.13 -m venv .venv313
+        .venv310/bin/pip install $(ls target/wheels/granian-*-cp310-*.whl)
+        .venv311/bin/pip install $(ls target/wheels/granian-*-cp311-*.whl)
+        .venv312/bin/pip install $(ls target/wheels/granian-*-cp312-*.whl)
+        .venv313/bin/pip install $(ls target/wheels/granian-*-cp313-*.whl)
+    - name: benchmark
+      env:
+        WORKSPACE: ${{ github.workspace }}
+      working-directory: ./benchmarks
+      run: |
+        BENCHMARK_EXC_PREFIX="$WORKSPACE/.venv310/bin" "$WORKSPACE/.venv310/bin/python" benchmarks.py interfaces
+        mv results/data.json results/py310.json
+        BENCHMARK_EXC_PREFIX="$WORKSPACE/.venv311/bin" "$WORKSPACE/.venv311/bin/python" benchmarks.py interfaces
+        mv results/data.json results/py311.json
+        BENCHMARK_EXC_PREFIX="$WORKSPACE/.venv312/bin" "$WORKSPACE/.venv312/bin/python" benchmarks.py interfaces
+        mv results/data.json results/py312.json
+        BENCHMARK_EXC_PREFIX="$WORKSPACE/.venv313/bin" "$WORKSPACE/.venv313/bin/python" benchmarks.py interfaces
+        mv results/data.json results/py313.json
+    - name: upload results
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: results-pyver
+        path: benchmarks/results/*
+
+  results:
+    runs-on: ubuntu-latest
+    needs: [benchmark-base, benchmark-vs, benchmark-ws, benchmark-pyver]
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: gi0baro/setup-noir@c377f5ef3a1e4d0b85578ebd1ae2a8965988d8f9 # v1.0.0
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: results-base
+        path: benchmarks/results
+    - run: |
+        mv benchmarks/results/data.json benchmarks/results/base.json
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: results-vs
+        path: benchmarks/results
+    - run: |
+        mv benchmarks/results/data.json benchmarks/results/vs.json
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: results-ws
+        path: benchmarks/results
+    - run: |
+        mv benchmarks/results/data.json benchmarks/results/ws.json
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: results-pyver
+        path: benchmarks/results
+    - name: render
+      working-directory: ./benchmarks
+      run: |
+        noir -c data:results/base.json -v 'benv=GHA Linux x86_64' templates/main.md > README.md
+        noir -c data:results/vs.json -c wsdata:results/ws.json -v 'benv=GHA Linux x86_64' templates/vs.md > vs.md
+        noir \
+          -c data310:results/py310.json \
+          -c data311:results/py311.json \
+          -c data312:results/py312.json \
+          -c data313:results/py313.json \
+          -v pyvb=310 -v 'benv=GHA Linux x86_64' \
+          templates/pyver.md > pyver.md
+    - name: open PR
+      uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      with:
+        branch: benchmarks-update
+        branch-suffix: timestamp
+        title: Update benchmark results
+        body: SSIA
+        commit-message: |
+          Update benchmark results
+        add-paths: |
+          benchmarks/README.md
+          benchmarks/vs.md
+          benchmarks/pyver.md
